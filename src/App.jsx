@@ -339,7 +339,14 @@ const CSS = `
   .t-detailgrid{ display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; margin:14px 0 18px; font-size:14px; }
   .t-detailgrid div{ display:flex; justify-content:space-between; border-bottom:1px solid var(--border); padding:7px 0; color:var(--dim); }
   .t-detailgrid div b{ color:var(--text); font-weight:500; }
-  .t-desc{ font-size:14px; line-height:1.65; color:var(--dim); margin-bottom:20px; }
+  .t-desc{ font-size:14px; line-height:1.6; color:var(--dim); margin-bottom:20px; }
+  .t-desc-heading{ font-family:'Barlow Condensed'; font-weight:700; font-size:15px; letter-spacing:.04em;
+    color:var(--chrome); margin:16px 0 6px; }
+  .t-desc-heading:first-child{ margin-top:0; }
+  .t-desc-bullet{ padding-left:14px; position:relative; margin-bottom:4px; }
+  .t-desc-bullet::before{ content:"–"; position:absolute; left:0; color:var(--accent); }
+  .t-desc-line{ margin-bottom:4px; }
+  .t-desc a{ color:var(--accent-hi); text-decoration:underline; text-underline-offset:2px; }
   .t-actionrow{ display:flex; gap:10px; flex-wrap:wrap; }
 
   /* forms */
@@ -419,6 +426,34 @@ function CarCard({ car, onView }) {
 }
 
 /* ================= CAR DETAIL MODAL ================= */
+/* Renders a raw pasted caption (Facebook-style, with ***** headings and
+   - / ~ bullet lines) as properly structured, readable HTML instead of
+   one wrapped block — and makes Malaysian phone numbers tappable. */
+function linkifyPhones(text) {
+  const parts = text.split(/(01\d[-\s]?\d{3,4}[-\s]?\d{3,4})/g);
+  return parts.map((part, i) =>
+    /^01\d[-\s]?\d{3,4}[-\s]?\d{3,4}$/.test(part)
+      ? <a key={i} href={`tel:${part.replace(/[-\s]/g, "")}`}>{part}</a>
+      : part
+  );
+}
+function DescriptionBlock({ text }) {
+  const lines = (text || "").split("\n").map((l) => l.trim());
+  return (
+    <div className="t-desc">
+      {lines.map((line, i) => {
+        if (!line) return null;
+        const bare = line.replace(/[*=~]/g, "").trim();
+        const isHeading = /^[*=~]{2,}.+[*=~]{2,}$/.test(line) || (bare.length > 2 && bare === bare.toUpperCase() && /[A-Z]/.test(bare) && bare.length < 40 && !/^[-–~•]/.test(line));
+        const isBullet = /^[-–~•]\s?/.test(line);
+        if (isHeading) return <div key={i} className="t-desc-heading">{bare}</div>;
+        if (isBullet) return <div key={i} className="t-desc-bullet">{linkifyPhones(line.replace(/^[-–~•]\s?/, ""))}</div>;
+        return <div key={i} className="t-desc-line">{linkifyPhones(line)}</div>;
+      })}
+    </div>
+  );
+}
+
 function CarModal({ car, settings, onClose, onBook }) {
   const [imgIdx, setImgIdx] = useState(0);
   const images = car.images && car.images.length ? car.images : [null];
@@ -452,7 +487,7 @@ function CarModal({ car, settings, onClose, onBook }) {
             <div>Colour <b>{car.color || "—"}</b></div>
             <div>Status <b>{car.status === "active" ? "Available" : "Sold"}</b></div>
           </div>
-          <p className="t-desc">{car.description}</p>
+          <DescriptionBlock text={car.description} />
           {car.status === "active" ? (
             <div className="t-actionrow">
               <button className="t-cta" onClick={() => onBook(car)}>Book an appointment</button>
