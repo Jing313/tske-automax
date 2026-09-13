@@ -377,10 +377,16 @@ const CSS = `
   .t-loginbox{ width:100%; max-width:340px; border:1px solid var(--border); background:var(--surface);
     border-radius:6px; padding:28px; }
   .t-imgpicker{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
-  .t-imgpicker .ph{ width:74px; height:56px; border-radius:3px; object-fit:cover; border:1px solid var(--border); }
+  .t-imgpicker .ph{ width:74px; height:56px; border-radius:3px; object-fit:cover; border:1px solid var(--border); display:block; }
   .t-imgpicker .rm{ position:relative; }
-  .t-imgpicker .rm button{ position:absolute; top:-6px; right:-6px; background:var(--accent); color:#fff; border:none;
+  .t-imgpicker .rm.cover .ph{ border:2px solid var(--chrome); }
+  .t-imgpicker .rm button.x{ position:absolute; top:-6px; right:-6px; background:var(--accent); color:#fff; border:none;
     border-radius:50%; width:18px; height:18px; font-size:11px; line-height:1; display:flex; align-items:center; justify-content:center; }
+  .t-imgpicker .coverbadge{ position:absolute; bottom:-2px; left:-2px; right:-2px; background:var(--chrome); color:#14170A;
+    font-size:9px; font-weight:700; letter-spacing:.03em; text-align:center; border-radius:0 0 2px 2px; padding:1px 0; }
+  .t-imgpicker .setcover{ position:absolute; bottom:-2px; left:-2px; right:-2px; background:rgba(20,23,26,0.85); color:#fff;
+    border:none; font-size:9px; padding:1px 0; opacity:0; transition:opacity .12s; }
+  .t-imgpicker .rm:hover .setcover{ opacity:1; }
   .t-uploadbtn{ border:1px dashed var(--border); color:var(--dim); background:none; border-radius:3px;
     padding:8px 14px; font-size:12.5px; }
   .t-uploadbtn:hover{ border-color:var(--chrome); color:var(--text); }
@@ -664,6 +670,14 @@ function CarForm({ initial, onCancel, onSave, token }) {
   function removeImage(i) {
     setForm((f) => ({ ...f, images: f.images.filter((_, idx) => idx !== i) }));
   }
+  function setCover(i) {
+    setForm((f) => {
+      const imgs = [...f.images];
+      const [chosen] = imgs.splice(i, 1);
+      imgs.unshift(chosen);
+      return { ...f, images: imgs };
+    });
+  }
 
   function submit(e) {
     e.preventDefault();
@@ -731,12 +745,22 @@ function CarForm({ initial, onCancel, onSave, token }) {
         <label>Photos</label>
         <div className="t-imgpicker">
           {form.images.map((src, i) => (
-            <div className="rm" key={i}>
+            <div className={`rm ${i === 0 ? "cover" : ""}`} key={i}>
               <img className="ph" src={src} alt="" />
-              <button type="button" onClick={() => removeImage(i)}>✕</button>
+              <button type="button" className="x" onClick={() => removeImage(i)}>✕</button>
+              {i === 0 ? (
+                <span className="coverbadge">COVER</span>
+              ) : (
+                <button type="button" className="setcover" onClick={() => setCover(i)}>Set as cover</button>
+              )}
             </div>
           ))}
         </div>
+        {form.images.length > 1 && (
+          <p style={{ fontSize: 11.5, color: "var(--dim)", margin: "0 0 10px" }}>
+            The first photo (marked COVER) is what shows on the inventory grid — hover a photo and click "Set as cover" to change it.
+          </p>
+        )}
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handleFiles} />
         <button type="button" className="t-uploadbtn" onClick={() => fileRef.current.click()} disabled={uploading}>
           {uploading ? "Processing…" : "+ Add photos"}
