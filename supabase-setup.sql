@@ -17,6 +17,7 @@ create table if not exists cars (
   color text,
   description text,
   images text[] default '{}',
+  specs jsonb default '{}'::jsonb,
   status text default 'active',
   created_at timestamptz default now()
 );
@@ -50,7 +51,8 @@ create table if not exists settings (
   business_name text default 'TSKE Automax',
   whatsapp_number text default '60123456789',
   location text default 'Bayan Lepas, Penang',
-  fb_url text default 'https://www.facebook.com/boon83boon'
+  fb_url text default 'https://www.facebook.com/boon83boon',
+  mudah_url text default 'https://www.mudah.my/tskeautomax'
 );
 
 insert into settings (id) values (1) on conflict (id) do nothing;
@@ -90,3 +92,20 @@ create policy "Admins can delete car images"
 --    Enter your sister's email + a password she'll use to log in
 --    as the site admin. This replaces the demo "tske2026" password.
 -- ============================================================
+
+-- ============================================================
+-- MIGRATION (only needed if you already ran the setup above
+-- before mudah_url existed): adds the Mudah.my link field.
+-- Safe to run even on a fresh project — it just does nothing
+-- if the column is already there.
+-- ============================================================
+alter table settings add column if not exists mudah_url text default 'https://www.mudah.my/tskeautomax';
+
+-- ============================================================
+-- MIGRATION: adds the full "Car Specifications" sheet (optional
+-- per car — engine, dimensions, brakes, suspension, tyres...).
+-- Only needed if you already ran the setup above before this
+-- existed. Safe to run on a fresh project too — does nothing if
+-- the column is already there.
+-- ============================================================
+alter table cars add column if not exists specs jsonb default '{}'::jsonb;

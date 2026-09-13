@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
   whatsappNumber: "60123456789", // country code + number, digits only
   location: "Bayan Lepas, Penang",
   fbUrl: "https://www.facebook.com/boon83boon",
+  mudahUrl: "https://www.mudah.my/tskeautomax",
 };
 
 /* ---------------- Supabase REST helpers (no SDK needed) ---------------- */
@@ -85,21 +86,21 @@ function carFromRow(r) {
     id: r.id, title: r.title, brand: r.brand, year: r.year, price: r.price,
     mileage: r.mileage, transmission: r.transmission, fuelType: r.fuel_type,
     color: r.color, description: r.description, images: r.images || [],
-    status: r.status, createdAt: r.created_at,
+    specs: r.specs || {}, status: r.status, createdAt: r.created_at,
   };
 }
 function carToRow(c) {
   return {
     title: c.title, brand: c.brand, year: c.year, price: c.price, mileage: c.mileage,
     transmission: c.transmission, fuel_type: c.fuelType, color: c.color,
-    description: c.description, images: c.images, status: c.status,
+    description: c.description, images: c.images, specs: c.specs || {}, status: c.status,
   };
 }
 function settingsFromRow(r) {
-  return { businessName: r.business_name, whatsappNumber: r.whatsapp_number, location: r.location, fbUrl: r.fb_url };
+  return { businessName: r.business_name, whatsappNumber: r.whatsapp_number, location: r.location, fbUrl: r.fb_url, mudahUrl: r.mudah_url };
 }
 function settingsToRow(s) {
-  return { business_name: s.businessName, whatsapp_number: s.whatsappNumber, location: s.location, fb_url: s.fbUrl };
+  return { business_name: s.businessName, whatsapp_number: s.whatsappNumber, location: s.location, fb_url: s.fbUrl, mudah_url: s.mudahUrl };
 }
 
 async function loadCars() {
@@ -187,6 +188,73 @@ function compressImage(file, maxDim = 1000, quality = 0.75) {
   });
 }
 
+/* ================= FULL SPEC SHEET (optional, like Mudah's listing page) =================
+   `specs` is stored as one flexible jsonb column rather than dozens of DB
+   columns, since most cars will only have some of these filled in. */
+const SPEC_GROUPS = [
+  { title: "Vehicle", fields: [
+    ["model", "Model"], ["series", "Series"], ["variant", "Variant"],
+    ["bodyType", "Type"], ["seats", "Seats"], ["countryOrigin", "Country of Origin"],
+  ] },
+  { title: "Engine", fields: [
+    ["engineCc", "Engine CC"], ["engineType", "Engine Type"],
+    ["compressionRatio", "Compression Ratio"],
+    ["peakPowerKw", "Peak Power (kW)"], ["peakTorqueNm", "Peak Torque (Nm)"],
+  ] },
+  { title: "Dimension & Weight", fields: [
+    ["lengthMm", "Length (mm)"], ["widthMm", "Width (mm)"], ["heightMm", "Height (mm)"],
+    ["wheelBaseMm", "Wheel Base (mm)"], ["kerbWeightKg", "Kerb Weight (kg)"], ["fuelTankL", "Fuel Tank (L)"],
+  ] },
+  { title: "Brakes", fields: [["frontBrakes", "Front Brakes"], ["rearBrakes", "Rear Brakes"]] },
+  { title: "Suspension", fields: [["frontSuspension", "Front Suspension"], ["rearSuspension", "Rear Suspension"]] },
+  { title: "Steering", fields: [["steering", "Steering"]] },
+  { title: "Tyres & Wheels", fields: [
+    ["frontTyres", "Front Tyres"], ["rearTyres", "Rear Tyres"],
+    ["frontRims", "Front Rims"], ["rearRims", "Rear Rims"],
+  ] },
+];
+
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+// Looks for "Label: value" or "Label" on its own line followed by the value
+// on the next line — the two shapes structured spec text (like a pasted
+// Mudah listing) tends to come in. Best-effort only; never assumed correct.
+function findLabelValue(text, labels) {
+  for (const label of labels) {
+    const re = new RegExp(escapeRegex(label) + "\\s*[:\\-]?\\s*\\n?\\s*([^\\n]{1,60})", "i");
+    const m = text.match(re);
+    if (m && m[1] && m[1].trim()) return m[1].trim();
+  }
+  return "";
+}
+
+function parseSpecsFromText(text) {
+  if (!text) return { brand: "", specs: {} };
+  const brand = findLabelValue(text, ["brand"]);
+  const specs = {};
+  const labelMap = {
+    model: ["model"], series: ["series"], variant: ["variant"],
+    bodyType: ["body type", "vehicle type"], seats: ["seats"],
+    countryOrigin: ["country of origin", "origin"],
+    engineCc: ["engine cc"], engineType: ["engine type"],
+    compressionRatio: ["compression ratio"],
+    peakPowerKw: ["peak power (kw)", "peak power"], peakTorqueNm: ["peak torque (nm)", "peak torque"],
+    lengthMm: ["length (mm)", "length"], widthMm: ["width (mm)", "width"], heightMm: ["height (mm)", "height"],
+    wheelBaseMm: ["wheel base (mm)", "wheelbase"], kerbWeightKg: ["kerb weight (kg)", "kerb weight"],
+    fuelTankL: ["fuel tank (litres)", "fuel tank"],
+    frontBrakes: ["front brakes"], rearBrakes: ["rear brakes"],
+    frontSuspension: ["front suspension"], rearSuspension: ["rear suspension"],
+    steering: ["steering"],
+    frontTyres: ["front tyres", "front tires"], rearTyres: ["rear tyres", "rear tires"],
+    frontRims: ["front rims"], rearRims: ["rear rims"],
+  };
+  for (const key in labelMap) {
+    const v = findLabelValue(text, labelMap[key]);
+    if (v) specs[key] = v;
+  }
+  return { brand, specs };
+}
+
 /* ================= ICONS (inline svg, stroke-based) ================= */
 const Icon = {
   whatsapp: (p) => (
@@ -218,6 +286,33 @@ const Icon = {
   ),
   photo: (p) => (
     <svg viewBox="0 0 24 24" width={p.size||34} height={p.size||34} fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10.5" r="1.5"/><path d="M21 16l-5-5-9 9"/></svg>
+  ),
+  calendar: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+  ),
+  palette: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3s7 7.3 7 11.5A7 7 0 0 1 5 14.5C5 10.3 12 3 12 3Z"/></svg>
+  ),
+  check: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9"/></svg>
+  ),
+  tag: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20.6 13.4 12 22l-9-9V4h9l8.6 9.4Z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg>
+  ),
+  hash: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 9h16M4 15h16M9.5 4 7 20M17 4l-2.5 16"/></svg>
+  ),
+  layers: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3 2 9l10 6 10-6-10-6Z"/><path d="M2 15l10 6 10-6"/></svg>
+  ),
+  carSide: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 13l1.7-4.6A2 2 0 0 1 6.6 7h10.8a2 2 0 0 1 1.9 1.4L21 13"/><rect x="2" y="13" width="20" height="4.5" rx="1.4"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></svg>
+  ),
+  seat: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M7 3v9a3 3 0 0 0 3 3h4"/><rect x="14" y="13" width="4" height="8" rx="1.2"/><path d="M7 3h3"/></svg>
+  ),
+  globe: (p) => (
+    <svg viewBox="0 0 24 24" width={p.size||16} height={p.size||16} fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.8 2.4 4.3 5.7 4.3 9s-1.5 6.6-4.3 9c-2.8-2.4-4.3-5.7-4.3-9S9.2 5.4 12 3Z"/></svg>
   ),
 };
 
@@ -339,6 +434,8 @@ const CSS = `
   .t-detailgrid{ display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; margin:14px 0 18px; font-size:14px; }
   .t-detailgrid div{ display:flex; justify-content:space-between; border-bottom:1px solid var(--border); padding:7px 0; color:var(--dim); }
   .t-detailgrid div b{ color:var(--text); font-weight:500; }
+  .t-detailgrid .lbl{ display:flex; align-items:center; gap:7px; }
+  .t-detailgrid .lbl svg{ flex-shrink:0; opacity:0.8; }
   .t-desc{ font-size:14px; line-height:1.6; color:var(--dim); margin-bottom:20px; }
   .t-desc-heading{ font-family:'Barlow Condensed'; font-weight:700; font-size:15px; letter-spacing:.04em;
     color:var(--chrome); margin:16px 0 6px; }
@@ -462,6 +559,52 @@ function DescriptionBlock({ text }) {
   );
 }
 
+// Icons for the "Vehicle" spec group only — matches the look of a
+// Mudah-style spec sheet without needing an icon for every single field.
+const SPEC_ICONS = {
+  model: Icon.tag, series: Icon.hash, variant: Icon.layers,
+  bodyType: Icon.carSide, seats: Icon.seat, countryOrigin: Icon.globe,
+};
+
+function SpecsSection({ specs }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!specs || Object.keys(specs).length === 0) return null;
+
+  const groups = SPEC_GROUPS
+    .map((g) => ({ ...g, fields: g.fields.filter(([key]) => specs[key]) }))
+    .filter((g) => g.fields.length > 0);
+  if (groups.length === 0) return null;
+
+  const visibleGroups = expanded ? groups : groups.slice(0, 1);
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div className="t-desc-heading" style={{ marginTop: 0, fontSize: 17 }}>Car Specifications</div>
+      {visibleGroups.map((g) => (
+        <div key={g.title} style={{ marginBottom: 10 }}>
+          {groups.length > 1 && <div className="t-desc-heading">{g.title}</div>}
+          <div className="t-detailgrid" style={{ margin: "4px 0" }}>
+            {g.fields.map(([key, label]) => {
+              const FieldIcon = SPEC_ICONS[key];
+              return (
+                <div key={key}>
+                  <span className="lbl">{FieldIcon && <FieldIcon size={14} />}{label}</span>
+                  <b>{specs[key]}</b>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {groups.length > 1 && (
+        <button type="button" className="t-linkbtn" onClick={() => setExpanded((s) => !s)} style={{ padding: 0 }}>
+          {expanded ? "Show less ▲" : "Show full specifications ▼"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function CarModal({ car, settings, onClose, onBook }) {
   const [imgIdx, setImgIdx] = useState(0);
   const images = car.images && car.images.length ? car.images : [null];
@@ -488,13 +631,14 @@ function CarModal({ car, settings, onClose, onBook }) {
           </div>
           <div className="t-price" style={{ fontSize: 26, marginBottom: 10 }}>{formatPrice(car.price)}</div>
           <div className="t-detailgrid">
-            <div>Year <b>{car.year}</b></div>
-            <div>Mileage <b>{formatMileage(car.mileage)}</b></div>
-            <div>Transmission <b>{car.transmission}</b></div>
-            <div>Fuel type <b>{car.fuelType}</b></div>
-            <div>Colour <b>{car.color || "—"}</b></div>
-            <div>Status <b>{car.status === "active" ? "Available" : "Sold"}</b></div>
+            <div><span className="lbl"><Icon.calendar size={14} />Year</span><b>{car.year}</b></div>
+            <div><span className="lbl"><Icon.gauge size={14} />Mileage</span><b>{formatMileage(car.mileage)}</b></div>
+            <div><span className="lbl"><Icon.gear size={14} />Transmission</span><b>{car.transmission}</b></div>
+            <div><span className="lbl"><Icon.fuel size={14} />Fuel type</span><b>{car.fuelType}</b></div>
+            <div><span className="lbl"><Icon.palette size={14} />Colour</span><b>{car.color || "—"}</b></div>
+            <div><span className="lbl"><Icon.check size={14} />Status</span><b>{car.status === "active" ? "Available" : "Sold"}</b></div>
           </div>
+          <SpecsSection specs={car.specs} />
           <DescriptionBlock text={car.description} />
           {car.status === "active" ? (
             <div className="t-actionrow">
@@ -664,7 +808,10 @@ function PublicSite({ cars, settings, onGoAdmin }) {
 
       <footer className="t-footer" id="contact">
         <span>© {new Date().getFullYear()} {settings.businessName} · {settings.location}</span>
-        <a href={settings.fbUrl} target="_blank" rel="noreferrer">Visit our Facebook page →</a>
+        <span style={{ display: "flex", gap: 18 }}>
+          {settings.mudahUrl && <a href={settings.mudahUrl} target="_blank" rel="noreferrer">View on Mudah.my →</a>}
+          <a href={settings.fbUrl} target="_blank" rel="noreferrer">Visit our Facebook page →</a>
+        </span>
       </footer>
 
       {viewCar && (
@@ -685,18 +832,39 @@ function PublicSite({ cars, settings, onGoAdmin }) {
 /* ================= ADMIN: CAR FORM ================= */
 const emptyCarForm = {
   title: "", brand: "", year: new Date().getFullYear(), price: "", mileage: "",
-  transmission: "Automatic", fuelType: "Petrol", color: "", description: "", images: [],
+  transmission: "Automatic", fuelType: "Petrol", color: "", description: "", images: [], specs: {},
 };
 
 function CarForm({ initial, onCancel, onSave, token }) {
-  const [form, setForm] = useState(initial || emptyCarForm);
+  const [form, setForm] = useState(initial ? { ...initial, specs: initial.specs || {} } : emptyCarForm);
   const [err, setErr] = useState("");
   const [uploading, setUploading] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const [overIndex, setOverIndex] = useState(null);
+  const [showSpecs, setShowSpecs] = useState(false);
+  const [parseMsg, setParseMsg] = useState("");
   const fileRef = useRef();
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+  function setSpec(k, v) { setForm((f) => ({ ...f, specs: { ...f.specs, [k]: v } })); }
+
+  function autoFillFromDescription() {
+    const { brand, specs } = parseSpecsFromText(form.description);
+    let filled = 0;
+    setForm((f) => {
+      const nextSpecs = { ...f.specs };
+      for (const k in specs) {
+        if (!nextSpecs[k]) { nextSpecs[k] = specs[k]; filled++; }
+      }
+      const nextBrand = !f.brand && brand ? brand : f.brand;
+      if (nextBrand !== f.brand) filled++;
+      return { ...f, brand: nextBrand, specs: nextSpecs };
+    });
+    setShowSpecs(true);
+    setParseMsg(filled > 0
+      ? `Filled ${filled} blank field${filled === 1 ? "" : "s"} from the description — please check them below.`
+      : "Couldn't confidently detect any spec fields in the description — nothing was filled in.");
+  }
 
   async function handleFiles(e) {
     const files = Array.from(e.target.files || []);
@@ -791,6 +959,10 @@ function CarForm({ initial, onCancel, onSave, token }) {
       <div className="t-field">
         <label>Description</label>
         <textarea value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Condition, service history, notable features…" />
+        <button type="button" className="t-uploadbtn" style={{ marginTop: 6 }} onClick={autoFillFromDescription}>
+          Try auto-fill specs from description
+        </button>
+        {parseMsg && <p style={{ fontSize: 11.5, color: "var(--dim)", margin: "6px 0 0" }}>{parseMsg}</p>}
       </div>
       <div className="t-field">
         <label>Photos</label>
@@ -826,6 +998,30 @@ function CarForm({ initial, onCancel, onSave, token }) {
           {uploading ? "Processing…" : "+ Add photos"}
         </button>
       </div>
+
+      <div className="t-field">
+        <button type="button" className="t-uploadbtn" onClick={() => setShowSpecs((s) => !s)}>
+          {showSpecs ? "Hide full specifications" : "+ Add full specifications (optional)"}
+        </button>
+        {showSpecs && (
+          <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+            {SPEC_GROUPS.map((group) => (
+              <div key={group.title} style={{ marginBottom: 16 }}>
+                <div className="t-desc-heading" style={{ marginTop: 0 }}>{group.title}</div>
+                <div className="t-row2">
+                  {group.fields.map(([key, label]) => (
+                    <div className="t-field" key={key} style={{ marginBottom: 10 }}>
+                      <label>{label}</label>
+                      <input value={form.specs[key] || ""} onChange={(e) => setSpec(key, e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {err && <div className="t-errtext">{err}</div>}
       <div className="t-actionrow" style={{ marginTop: 6 }}>
         <button type="submit" className="t-cta">Save listing</button>
@@ -975,6 +1171,10 @@ function SettingsForm({ settings, onSave }) {
       <div className="t-field">
         <label>Facebook page URL</label>
         <input value={form.fbUrl} onChange={(e) => setForm({ ...form, fbUrl: e.target.value })} />
+      </div>
+      <div className="t-field">
+        <label>Mudah.my page URL</label>
+        <input value={form.mudahUrl} onChange={(e) => setForm({ ...form, mudahUrl: e.target.value })} placeholder="https://www.mudah.my/tskeautomax" />
       </div>
       <button className="t-cta" onClick={() => onSave(form)}>Save settings</button>
     </div>
