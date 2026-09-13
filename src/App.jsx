@@ -384,16 +384,24 @@ const CSS = `
   .t-loginbox{ width:100%; max-width:340px; border:1px solid var(--border); background:var(--surface);
     border-radius:6px; padding:28px; }
   .t-imgpicker{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
-  .t-imgpicker .ph{ width:74px; height:56px; border-radius:3px; object-fit:cover; border:1px solid var(--border); display:block; }
-  .t-imgpicker .rm{ position:relative; }
+  .t-imgpicker .ph{ width:74px; height:56px; border-radius:3px; object-fit:cover; border:1px solid var(--border); display:block;
+    pointer-events:none; }
+  .t-imgpicker .rm{ position:relative; cursor:grab; transition:opacity .12s; padding-bottom:16px; }
+  .t-imgpicker .rm:active{ cursor:grabbing; }
+  .t-imgpicker .rm.dragging{ opacity:0.35; }
+  .t-imgpicker .rm.dragover .ph{ border-color:var(--accent-hi); border-width:2px; }
   .t-imgpicker .rm.cover .ph{ border:2px solid var(--chrome); }
   .t-imgpicker .rm button.x{ position:absolute; top:-6px; right:-6px; background:var(--accent); color:#fff; border:none;
-    border-radius:50%; width:18px; height:18px; font-size:11px; line-height:1; display:flex; align-items:center; justify-content:center; }
-  .t-imgpicker .coverbadge{ position:absolute; bottom:-2px; left:-2px; right:-2px; background:var(--chrome); color:#14170A;
-    font-size:9px; font-weight:700; letter-spacing:.03em; text-align:center; border-radius:0 0 2px 2px; padding:1px 0; }
-  .t-imgpicker .setcover{ position:absolute; bottom:-2px; left:-2px; right:-2px; background:rgba(20,23,26,0.85); color:#fff;
-    border:none; font-size:9px; padding:1px 0; opacity:0; transition:opacity .12s; }
-  .t-imgpicker .rm:hover .setcover{ opacity:1; }
+    border-radius:50%; width:18px; height:18px; font-size:11px; line-height:1; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; z-index:2; }
+  .t-imgpicker .coverbadge{ position:absolute; top:-6px; left:-6px; background:var(--chrome); color:#14170A;
+    font-size:8.5px; font-weight:700; letter-spacing:.03em; padding:1px 6px; border-radius:8px; pointer-events:none; z-index:1; }
+  .t-imgpicker .movebar{ position:absolute; bottom:0; left:0; right:0; display:flex; background:var(--surface2);
+    border:1px solid var(--border); border-top:none; border-radius:0 0 3px 3px; overflow:hidden; }
+  .t-imgpicker .movebar button{ flex:1; background:none; border:none; color:var(--text); font-size:12px; padding:2px 0;
+    cursor:pointer; line-height:1.2; }
+  .t-imgpicker .movebar button:disabled{ opacity:0.25; cursor:default; }
+  .t-imgpicker .movebar button:not(:disabled):hover{ background:var(--border); }
   .t-uploadbtn{ border:1px dashed var(--border); color:var(--dim); background:none; border-radius:3px;
     padding:8px 14px; font-size:12.5px; }
   .t-uploadbtn:hover{ border-color:var(--chrome); color:var(--text); }
@@ -684,6 +692,8 @@ function CarForm({ initial, onCancel, onSave, token }) {
   const [form, setForm] = useState(initial || emptyCarForm);
   const [err, setErr] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [dragIndex, setDragIndex] = useState(null);
+  const [overIndex, setOverIndex] = useState(null);
   const fileRef = useRef();
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
@@ -705,13 +715,19 @@ function CarForm({ initial, onCancel, onSave, token }) {
   function removeImage(i) {
     setForm((f) => ({ ...f, images: f.images.filter((_, idx) => idx !== i) }));
   }
-  function setCover(i) {
+  function reorderImages(from, to) {
+    if (from === to || from == null || to == null) return;
     setForm((f) => {
       const imgs = [...f.images];
-      const [chosen] = imgs.splice(i, 1);
-      imgs.unshift(chosen);
+      const [moved] = imgs.splice(from, 1);
+      imgs.splice(to, 0, moved);
       return { ...f, images: imgs };
     });
+  }
+  function moveImage(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= form.images.length) return;
+    reorderImages(i, j);
   }
 
   function submit(e) {
@@ -780,20 +796,29 @@ function CarForm({ initial, onCancel, onSave, token }) {
         <label>Photos</label>
         <div className="t-imgpicker">
           {form.images.map((src, i) => (
-            <div className={`rm ${i === 0 ? "cover" : ""}`} key={i}>
+            <div
+              key={src.slice(-24) + i}
+              className={`rm ${i === 0 ? "cover" : ""} ${dragIndex === i ? "dragging" : ""} ${overIndex === i && dragIndex !== i ? "dragover" : ""}`}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => { e.preventDefault(); setOverIndex(i); }}
+              onDragLeave={() => setOverIndex((cur) => (cur === i ? null : cur))}
+              onDrop={(e) => { e.preventDefault(); reorderImages(dragIndex, i); setDragIndex(null); setOverIndex(null); }}
+              onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}
+            >
               <img className="ph" src={src} alt="" />
               <button type="button" className="x" onClick={() => removeImage(i)}>✕</button>
-              {i === 0 ? (
-                <span className="coverbadge">COVER</span>
-              ) : (
-                <button type="button" className="setcover" onClick={() => setCover(i)}>Set as cover</button>
-              )}
+              {i === 0 && <span className="coverbadge">COVER</span>}
+              <div className="movebar">
+                <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} aria-label="Move left">‹</button>
+                <button type="button" onClick={() => moveImage(i, 1)} disabled={i === form.images.length - 1} aria-label="Move right">›</button>
+              </div>
             </div>
           ))}
         </div>
         {form.images.length > 1 && (
           <p style={{ fontSize: 11.5, color: "var(--dim)", margin: "0 0 10px" }}>
-            The first photo (marked COVER) is what shows on the inventory grid — hover a photo and click "Set as cover" to change it.
+            Drag to reorder on desktop, or tap ‹ › on a photo (works on phone too). First photo (COVER) shows on the inventory grid.
           </p>
         )}
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handleFiles} />
