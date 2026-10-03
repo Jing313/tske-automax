@@ -1,10 +1,12 @@
 name: Supabase keep-alive
 
 # Free-tier Supabase projects pause after ~7 days of inactivity.
-# This pings the REST API every 3 days with a tiny read on the cars table.
+# This pings the REST API daily with a tiny read on the cars table.
+# Note: a 3-day cadence was not enough to prevent a pause in practice
+# (observed 2026-09), so this runs daily for more safety margin.
 on:
   schedule:
-    - cron: "0 3 */3 * *"
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -14,10 +16,10 @@ jobs:
       - name: Query cars table
         env:
           SUPABASE_URL: https://diahuhduggvoqfsfdunn.supabase.co
-          # Public anon key (same one shipped in the frontend)
-          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpYWh1aGR1Z2d2b3Fmc2ZkdW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyODExNTEsImV4cCI6MjEwNDg1NzE1MX0.a3rWSrrFr4h4tqC4-hyG3wIPELflH5oCOMJRuCycySw
+          # Public publishable key (replacement for the legacy anon JWT key)
+          SUPABASE_KEY: sb_publishable_GyBJoQZRVmsshyPWj6fXrg_zWZjB45x
         run: |
           curl --fail --silent --show-error \
-            -H "apikey: $SUPABASE_ANON_KEY" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
             "$SUPABASE_URL/rest/v1/cars?select=id&limit=1"
